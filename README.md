@@ -1,3 +1,9 @@
+# How to download and use TopoProfiles in ArcGIS Pro
+The github site includes an ArcGIS Pro toolbox (atbx) file and a python folder, including four python source code files associated with these tools. The user can click "Code" (green color) on the right side of the github page and choose Download Zip.
+
+
+A zip file of the whole github folder will be downloaded to the local computer. Unzip this file will create a TopoProfiles-main folder with all folders and files. The user can use the toolbox in ArcGIS Pro, check the source codes, and continue improving this toolbox. Note that the source code file has not been imported to each tool in the current version, so that the toolbox cannot be run only with the atbx file.    
+
 # TopoProfiles
 An ArcGIS toolbox to delineate streamlines, generate cross-valley topographic profiles, derive profile integral and a range of other metrics for both one-sided and two-sided profiles. This toolbox includes four tools to: 1) delineate streamlines or valley bottom lines; 2) generate cross sections along the streamlines based on user-specified spacing and width of the cross sections; 3) derive PIs and other related metrics for specified cross sections; and 4) derive the PI and other metrics related to longitudinal profiles. All these tools are written with Python in ArcGIS Pro and can be used for both one-sided and two-sided topographic profiles.
 
