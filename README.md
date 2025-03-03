@@ -34,6 +34,20 @@ The ‘Derive One-sided Profile Metrics’ tool derives the metrics for one-side
 ![image](https://github.com/user-attachments/assets/ecd7a48d-c4e0-4904-8a21-13f0123d6261)
 
 
+# Cite this work
+Li Y., Evans, I.S., Harbor, J., in review. Profile Integral: a robust and flexible metric to measure the concavity/convexity of a topographic profile.
+
+# Contact info
+Yingkui Li
+
+Department of Geography & Sustainability
+
+University of Tennessee
+
+Knoxville, TN 37996
+
+Email: yli32@utk.edu
+
 
 
 
