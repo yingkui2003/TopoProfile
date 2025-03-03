@@ -1,6 +1,8 @@
 # How to download and use TopoProfiles in ArcGIS Pro
 The github site includes an ArcGIS Pro toolbox (atbx) file and a python folder, including four python source code files associated with these tools. The user can click "Code" (green color) on the right side of the github page and choose Download Zip.
 
+![image](https://github.com/user-attachments/assets/fa052d9d-5787-4bfe-876b-490ed41d1850)
+
 
 A zip file of the whole github folder will be downloaded to the local computer. Unzip this file will create a TopoProfiles-main folder with all folders and files. The user can use the toolbox in ArcGIS Pro, check the source codes, and continue improving this toolbox. Note that the source code file has not been imported to each tool in the current version, so that the toolbox cannot be run only with the atbx file.    
 
