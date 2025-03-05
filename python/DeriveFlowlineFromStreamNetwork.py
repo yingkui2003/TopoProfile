@@ -1,9 +1,21 @@
 #-------------------------------------------------------------------------------
-# Name: ChannellinesFromStream.py
-# Usage: ChannellinesFromStream <InputDEM> <InputMoraineorCrossSection> <StreamFc> <SmoothlinePoints> 
-# Purpose: This tool create smoothed ChannellinesFromStream for valleys based on the ArcGIS hydrological tools
+# Name: DeriveStreamlinesFromStreamNetwotk.py
+#
+# Purpose:
+# This tool derives a streamline or valley bottom line based on a digital elevation model (DEM)
+# and a specified lowest valley boundary or cross section, which can be defined as an input
+# feature class file (polylines or polygons) or can be digitized on screen. Other required
+# inputs include the minimum source area to start a streamline (km2), the minimum total
+# contribution area of a stream before joining another stream (km2), and the minimum tributary
+# to main valley ratio (Li and Zhao 2022; Li, 2023). The tool also provides three different ways
+# to smooth streamlines: 1) fixed smoothing based on a user-specified smoothing distance; 2)
+# varied smoothing based on Kienholz et al. (2014) for glacier studies; and 3) no smoothing.
+# The output of this tool includes derived streamlines and optional watershed boundaries
+# corresponding to the lowest valley locations. This tool is revised from the PalaeoIce
+# toolbox (Li, 2023). 
+#
 # Author: Dr. Yingkui Li
-# Created:     11/07/2024
+# Created:     11/07/2024-03/05/2025
 # Department of Geography, University of Tennessee
 # Knoxville, TN 37996
 #-------------------------------------------------------------------------------
@@ -318,12 +330,10 @@ def Merge_and_Add_ValleyID_by_Topology (streamlines, FaccField, ValleyID, MergeI
     del row, cursor
 
     ##Disslove the streamline
-    #field_treatment = "'" + FaccField +" SUM; " + ValleyID +" FIRST'"
     field_treatment = FaccField +" SUM; " + ValleyID +" FIRST"
     arcpy.Dissolve_management(streamlinecopy, outstreamline, MergeID, field_treatment, 'SINGLE_PART', 'UNSPLIT_LINES')
 
     exist_fields = [f.name for f in arcpy.ListFields(outstreamline)] #List of current field names in outline layer
-    #arcpy.AddMessage(exist_fields)
     for field in exist_fields:
         if field[0:6] == "FIRST_":
             FirstGID = field
@@ -336,7 +346,6 @@ def Merge_and_Add_ValleyID_by_Topology (streamlines, FaccField, ValleyID, MergeI
             arcpy.AddField_management(outstreamline, field, "LONG")
     
     fields = [FaccField, ValleyID, MaxFcc, FirstGID]
-    #arcpy.AddMessage(fields)
     with arcpy.da.UpdateCursor(outstreamline, fields) as cursor:
         for row in cursor:
             row[0] = row[2]
@@ -368,9 +377,7 @@ def Check_If_Flip_Line_Direction(line, dem):
     with arcpy.da.SearchCursor(line3d,["Shape@"]) as cursor:
         for row in cursor:
             startZ = row[0].firstPoint.Z
-            #arcpy.AddMessage("startZ: " + str(startZ))
             endZ = row[0].lastPoint.Z
-            #arcpy.AddMessage("endZ: " + str(endZ))
 
             if startZ >= endZ:  ##Flip = True use equal in case the start and end point are the same
                 flip_list.append(1)
@@ -381,9 +388,6 @@ def Check_If_Flip_Line_Direction(line, dem):
     del cursor
     if i>0:
         del row
-
-    #arcpy.AddMessage(flip_list)
-    #arcpy.AddMessage(str(sum(flip_list)))
 
     if sum(flip_list) > 0:
         with arcpy.da.UpdateCursor(line,["Flip"]) as cursor:
@@ -403,28 +407,6 @@ def Check_If_Flip_Line_Direction(line, dem):
     arcpy.DeleteField_management (line, "Flip")
     arcpy.Delete_management(line3d)
 
-#------------------------------------------------------------------------------------------------------------
-# This function Check if there are potential overlaped streamline sections within the streamline dataset
-#------------------------------------------------------------------------------------------------------------
-def Check_streamline_Overlap(streamline, Distance):
-    arcpy.AddMessage ("Checking and removing streamline overlaps...")
-    lines=[]
-    with arcpy.da.SearchCursor(streamline, ["SHAPE@","OID@"]) as flows: ##This function needs to revise further to only check the streamline with the same ValleyID
-        for flow in flows:
-            lines.append(flow[0])
-    del flow, flows
-
-    removeIds = [] 
-    for i in range(len(lines)):
-        line = lines[i]
-        for j in range (len(lines)):
-            if j != i: ##don't touch itself
-                within = (line.equals(lines[j]) or line.within(lines[j]))  
-                if within == True: ##if the start point touches others
-                    #arcpy.AddMessage("Within")
-                    ##record the i as removed
-                    removeIds.append(i)
-    #arcpy.AddMessage(removeIds)
                     
 #------------------------------------------------------------------------------------------------------------
 # This fuction smooths the streamlines based on the size of the watershed (flow accumulation)
@@ -492,13 +474,10 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
     valleyselected = temp_workspace + "\\valleyselected"  ##Set a in_memory file for each moraine feature
     MaxFccTable = temp_workspace + "\\MaxFccTable"
     CleanStream = temp_workspace + "\\CleanStream"
-    StreamClip = temp_workspace + "\\StreamClip"
-    Allstreams = temp_workspace + "\\Allstreams"
     tmpoutStream = temp_workspace + "\\tmpoutStream"
     smoothline = temp_workspace + "\\smoothline"
     tmpws = temp_workspace + "\\tmpws"
     tmpbuf = temp_workspace + "\\tmpbuf"
-    #smoothtolerance = cellsize_int * 10
     intersect_points = temp_workspace + "\\intersect_points"
 
     outGreaterThan = Con(facc > StreamThreshold, 1,0)  ##Determine the highest flowaccumuation part
@@ -558,7 +537,7 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
             ##erase the moraines by watershed to see if there is some outside of the watershed
             arcpy.Erase_analysis(valleyselected, tmpws, temp_workspace + "\\valley_outside")
             outsideArr = arcpy.da.FeatureClassToNumPyArray( temp_workspace + "\\valley_outside", 'OID@')
-            #arcpy.AddMessage("moraine outside parts: " + str(len(outsideArr)))
+
             if len(outsideArr) > 0:
                 ws_line = temp_workspace + "\\ws_line"
                 arcpy.PolygonToLine_management(tmpws, ws_line)
@@ -574,7 +553,6 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
             with arcpy.da.UpdateCursor(tmpws, 'SHAPE@AREA') as cursor:
                 for row in cursor:
                     if int(row[0]) < (max_area - 0.5):
-                        #arcpy.AddMessage("Delete one outline!")
                         cursor.deleteRow()     
             del cursor, row				
 
@@ -636,9 +614,6 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
                         else: ##quit the loop if all minfcc are larger than the theshold?? Try to remove more based on the ratio
                             break
 
-            ##Remove features based on the tributary ratio
-            #arcpy.AddMessage("Checking tributary ratio...")
-            
             for i in range(len(uniquenode)):
                 selArr = lineArray[tonode == uniquenode[i]]
                 fcclist = []
@@ -660,18 +635,13 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
                     if int(row[0]) in lineid:
                         cursor.deleteRow()     
             del cursor, row				
-            ##Dissolve the line file
-            #arcpy.AddMessage("dissolve and clean lines...")
 
             ##Clean extralines based on the end points intersection 09/24/2020
             cleanextralineswithtopology(TmpStream,tmpoutStream, 'MAX')  ## clean the extra lines before dissolving
 
             arcpy.Dissolve_management(tmpoutStream, CleanStream, '#', 'MAX MAX', 'SINGLE_PART', 'UNSPLIT_LINES')
 
-            #arcpy.CopyFeatures_management(CleanStream, "d:\\tempLyk\\cleanstream.shp") 
-        
             streamArr = arcpy.da.FeatureClassToNumPyArray(CleanStream, 'OID@')
-            #arcpy.AddMessage("The number of streams: " + str(len(streamArr)))
             if len(streamArr) > 0:
                 if "Varied" in smooth_method: 
                     newline = streamline_remove_bigturn(CleanStream, 120, cellsize_int)
@@ -687,9 +657,6 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
         else:
             arcpy.AddMessage("No streamline is created for this feature. It seems that the threshold for a stream is too large!")
 
-        #except:
-        #    arcpy.AddMessage("There is an error in extract Facc! move to the next")
-
     if  bPolyline == False: ##if polygon as the input, clip the streamlines within the polygon
         arcpy.Clip_analysis(outstreamline, InputValleyorCrossSection, temp_workspace + "\\streamline_clip")
         arcpy.CopyFeatures_management(temp_workspace + "\\streamline_clip", outstreamline)        
@@ -702,9 +669,7 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
         sys.exit()
     ##Merge streamline and add ValleyID
     Check_If_Flip_Line_Direction (outstreamline, fillDEM) ##use fillDEM because the orginal DEM may have problems
-    #arcpy.CopyFeatures_management(outstreamline, "")
     Merge_and_Add_ValleyID_by_Topology (outstreamline, "Max_Max", ValleyID, "MergeID", StreamLine)
-    #arcpy.CopyFeatures_management(outstreamline, StreamLine)
 
 ##Main program
 if __name__ == '__main__':
@@ -724,14 +689,12 @@ if __name__ == '__main__':
     spatial_ref_dem = arcpy.Describe(InputDEM).spatialReference
 
 
-    #if "UTM" in spatial_ref_dem.name:
     if spatial_ref_dem.linearUnitName == "Meter":
         arcpy.AddMessage("The DEM projection is: " + spatial_ref_dem.name)
     else:
         arcpy.AddMessage("The unit of the DEM projection is not in meter. Please re-project the DEM to a projected coordinate system for the analysis!")
         exit()   
 
-    #if "UTM" in spatial_ref_crosssections.name:
     if spatial_ref_crosssections.linearUnitName == "Meter":
         arcpy.AddMessage("The valley cross section projection is: " + spatial_ref_crosssections.name)
     else:

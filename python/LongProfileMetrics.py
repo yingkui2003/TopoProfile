@@ -1,16 +1,18 @@
 #-------------------------------------------------------------------------------
-# Name:        LongitudinalProfileMetrics
-# Purpose:     Derive LongitudinalProfileMetrics based DEM
+# Name: LongProfileMetrics.py
 #
-# Author: Yingkui Li
-# This program derive cirque related metrics based on cirque outlines and a DEM
-# The first step is to determine the cirque threshold points
-# The second step is to derive length and width info, as well as the area, and parameters
-# The third step is to detive the 3D statistics and hypsometric parameters
-# Some of the codes are revised based on the ACME codes by Ramon Pellitero and Matteo Spagnolo 2016
-# 
-# Created:     05/26/2023
-# Copyright:   (c) Yingkui Li 2023
+# Purpose:
+# This tool derives the metrics for one-sided profiles, such as river longitudinal profiles,
+# slope profiles, and half valley profiles. The inputs include the DEM, topographic profiles
+# (can be a file or digitized on screen), and whether it is necessary to cut profiles by the
+# highest elevation points. The output consists of the profiles with derived metrics as
+# attributes. This tool also provides an option to specify a folder in which to save the
+# plots of the topographic profiles for further analysis. 
+#
+# Author: Dr. Yingkui Li
+# Created:     11/07/2024-03/05/2025
+# Department of Geography, University of Tennessee
+# Knoxville, TN 37996
 #-------------------------------------------------------------------------------
 
 from __future__ import division
@@ -37,20 +39,16 @@ if sys.version_info[0] == 2:  ##For ArcGIS 10, need to check the 3D and Spatial 
             arcpy.CheckOutExtension("Spatial")
         else:
             raise Exception ("not extension available")
-            #print "not extension available"
     except:
         raise Exception ("unable to check out extension")
-        #print "unable to check out extension"
 
     try:
         if arcpy.CheckExtension("3D")=="Available":
             arcpy.CheckOutExtension("3D")
         else:
             raise Exception ("not extension available")
-            #print "not extension available"
     except:
         raise Exception ("unable to check out extension")
-        #print "unable to check out extension"
 elif sys.version_info[0] == 3:  ##For ArcGIS Pro
     ArcGISPro = 1
     #pass ##No need to Check
@@ -113,7 +111,6 @@ def Dist(x1,y1,x2,y2):
 def Check_If_Flip_Line_Direction(line, dem):
     cellsize = arcpy.GetRasterProperties_management(dem,"CELLSIZEX")
     cellsize_int = int(float(cellsize.getOutput(0)))
-    #arcpy.AddMessage("cellsize_int: " + str(cellsize_int))
 
     line3d = arcpy.env.scratchGDB + "\\line3d"
     arcpy.AddField_management(line, "Flip", "Long", "", "", "", "", "", "", "")
@@ -125,9 +122,7 @@ def Check_If_Flip_Line_Direction(line, dem):
     with arcpy.da.SearchCursor(line3d,["Shape@"]) as cursor:
         for row in cursor:
             startZ = row[0].firstPoint.Z
-            #arcpy.AddMessage("startZ: " + str(startZ))
             endZ = row[0].lastPoint.Z
-            #arcpy.AddMessage("endZ: " + str(endZ))
 
             if startZ >= endZ:  ##Flip = True use equal in case the start and end point are the same
                 flip_list.append(1)
@@ -138,9 +133,6 @@ def Check_If_Flip_Line_Direction(line, dem):
     del cursor
     if i>0:
         del row
-
-    #arcpy.AddMessage(flip_list)
-    #arcpy.AddMessage(str(sum(flip_list)))
 
     if sum(flip_list) > 0:
         with arcpy.da.UpdateCursor(line,["Flip"]) as cursor:
@@ -153,7 +145,6 @@ def Check_If_Flip_Line_Direction(line, dem):
 
         arcpy.MakeFeatureLayer_management(line, "lyrLines")
         arcpy.SelectLayerByAttribute_management("lyrLines", "NEW_SELECTION", '"Flip" > 0')
-        #arcpy.AddMessage("The number of fliped lines is: " + str(sum(flip_list)))
         arcpy.FlipLine_edit("lyrLines")  ##Need to change to lyrLines
         arcpy.SelectLayerByAttribute_management("lyrLines", "CLEAR_SELECTION")
 
@@ -166,7 +157,6 @@ def Check_If_Flip_Line_Direction(line, dem):
 InputDEM = arcpy.GetParameterAsText(0)
 InputProfiles = arcpy.GetParameterAsText(1)
 b_AdjustProfile = arcpy.GetParameter(2)
-#min_height = arcpy.GetParameter(3)
 OutputProfileMetrics  = arcpy.GetParameterAsText(3)
 OutputFolder = arcpy.GetParameterAsText(4)
 
@@ -185,8 +175,6 @@ arcpy.Delete_management(temp_workspace) ### Empty the in_memory
 
 if b_AdjustProfile: 
     ##Use the highest elevation to cut off the one do not overlap the lowest point
-    ##Need to rewrite this part of the program
-    
     arcpy.InterpolateShape_3d(InputDEM, InputProfiles, temp_workspace + "\\profile3D")
     try:
         arcpy.AddField_management(temp_workspace + "\\profile3D", "ProfileID", "LONG", 10)
@@ -249,11 +237,9 @@ if b_AdjustProfile:
     fieldmappings = arcpy.FieldMappings()
     fieldmappings.addTable(InputProfiles)
     arcpy.SpatialJoin_analysis(temp_workspace + "\\split_profiles", min_points, OutputProfileMetrics, "JOIN_ONE_TO_ONE", "KEEP_COMMON", fieldmappings, "INTERSECT", "1 Meters", "#")
-    #arcpy.DeleteField_management(OutputProfileMetrics,['Join_Count','TARGET_FID'])
 else:
     arcpy.CopyFeatures_management(InputProfiles, OutputProfileMetrics) 
 
-#a "list" where the name of fields from the attributed table are copied in
 arcpy.AddMessage("Add profile metric fields...")
 Fieldlist=[]
 ListFields=arcpy.ListFields(OutputProfileMetrics)
@@ -266,7 +252,6 @@ for x in ListFields:
 if "ProfileID" in Fieldlist:  ## count = 1
     pass
 else:
-    #add fieds to attribute tables to be populated with calculated values
     arcpy.AddField_management(OutputProfileMetrics, "ProfileID", "LONG", 10)
     arcpy.CalculateField_management(OutputProfileMetrics,"ProfileID",str("!"+str(arcpy.Describe(OutputProfileMetrics).OIDFieldName)+"!"),"PYTHON_9.3")
 
@@ -274,7 +259,6 @@ if OutputFolder != "":
     if "ProfilePlot" in Fieldlist:  ## count = 1
         pass
     else:
-        #add fieds to attribute tables to be populated with calculated values
         arcpy.AddField_management(OutputProfileMetrics, "ProfilePlot", "TEXT", 20)
     
 new_fields = ("Length","Height") ## All float variables 4
@@ -339,7 +323,6 @@ plot_list = []
 with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@", "SHAPE@Length"]) as cursor:
     i = 0
     for row in cursor: ##Loop for each line
-        #arcpy.AddMessage("Profile #" + str(i+1))
         PointX = []
         PointY = []
         LengthfromStart = []
@@ -371,7 +354,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
         min_Z = min(PointZ)
         mean_Z = sum(PointZ) / len(PointZ)
         HI = (mean_Z - min_Z) / (max_Z - min_Z)+ 0.001 ##add 0.001 to avoid the divide of zero
-        #arcpy.AddMessage("High-length HI: " + str(HI))
         HLHI_list.append(HI)
 
         height = max_Z - min_Z
@@ -387,7 +369,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
 
         ##derive the sinuosity
         start_end_length = Dist(PointX[0],PointY[0],PointX[-1],PointY[-1])
-        #arcpy.AddMessage(start_end_length)
         if start_end_length > 0:
             sinuosity = lineLength / (start_end_length) ##to avoid the division by zero
         else:
@@ -395,14 +376,10 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
         sinuosity_list.append(sinuosity)
 
         ##Calculate the HL-Aspect
-        #dz  = PointZ[-1] - PointZ[0]
         dx  = PointX[0] - PointX[-1]
         dy  = PointY[0] - PointY[-1]
-        #arcpy.AddMessage(str(dx))
-        #arcpy.AddMessage(str(dy))
 
         aspect = 180.0/math.pi * math.atan2(dy, dx)
-        #arcpy.AddMessage("Aspect is: " + str(aspect))
         if aspect < 90:
             adj_aspect = 90.0 - aspect
         else:
@@ -410,7 +387,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
         HLAsp_list.append(adj_aspect)
 
         ##Derive the exponential model fit for the longtitude profile 03/15/2023
-        #pointH = [y - min_Z for y in PointZ]
 
         pointZArr = np.array(PointZ)
 
@@ -423,9 +399,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
         max_len = max(LengthfromStart)
         norm_lenArr = LenArr / max_len
 
-        #validHArr = HArr[np.logical_and(HArr > 0, LenArr > 0)]
-        #validLenArr = LenArr[np.logical_and(HArr > 0, LenArr > 0)]
-
         valid_norm_HArr = norm_HArr[np.logical_and(HArr > 0, LenArr > 0)]
         valid_norm_lenArr = norm_lenArr[np.logical_and(HArr > 0, LenArr > 0)]
         
@@ -436,7 +409,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
             a = np.exp(polyfit_results['polynomial'][1])
             R2 = polyfit_results['determination']
         except:
-            #arcpy.AddMessage("There is an error!")
             b = -999
             a = -999
             R2 = -999
@@ -482,7 +454,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
             max_slp = np.max(slopes)
 
         p_close = max_slp - min_slp
-        #arcpy.AddMessage("the profile closure is: " + str(p_close))
         P_clos_list.append(p_close)
 
         #K-curve-fit
@@ -517,7 +488,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
         kcurve_r2_list.append(R2)
 
         ##derive the SL index?????
-        #pointH = [y - min_Z for y in PointZ] ##Already reversed in the previous step
 
         pointZArr = np.array(PointZ)
 
@@ -527,8 +497,6 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
         LenArr = np.array(LengthfromStart)
         ReverseLengthArr = max(LenArr) - LenArr
 
-        #validHArr = HArr[np.logical_and(HArr > 0, ReverseLengthArr > 0)]
-        #validLenArr = LenArr[np.logical_and(HArr > 0, ReverseLengthArr > 0)]
         validHArr = HArr[ReverseLengthArr > 0]
         validLenArr = ReverseLengthArr[ReverseLengthArr > 0]
 
@@ -566,12 +534,10 @@ with arcpy.da.UpdateCursor(OutputProfileMetrics, fields) as cursor:
             row[4] = f'{Amplitude_list[fid]:.1f}'
             row[5] = f'{profgrad_list[fid]:.1f}'
 
-            #row[6] = f'{exp_a_list[fid]:.4f}'
             row[6] = exp_a_list[fid]
             row[7] = exp_b_list[fid]
             row[8] = f'{exp_r2_list[fid]:.3f}'
 
-            #row[9] = f'{pow_a_list[fid]:.4f}'
             row[9] = pow_a_list[fid]
             row[10] = pow_b_list[fid]
             row[11] = f'{pow_r2_list[fid]:.3f}'
@@ -591,7 +557,6 @@ with arcpy.da.UpdateCursor(OutputProfileMetrics, fields) as cursor:
             #update cursor
             cursor.updateRow(row)
         except:
-            #arcpy.AddMessage("There is an error in the calculation. Move to the next one")
             pass
 del row, cursor
 

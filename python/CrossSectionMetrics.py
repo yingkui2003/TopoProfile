@@ -1,16 +1,25 @@
 #-------------------------------------------------------------------------------
-# Name:        WholeACMEcalculationsWithThresholds
-# Purpose:     Derive all cirque metrics based on Cirque outlines, a DEM, and user-provided thresholds
+# Name: CrossSectionMetrics.py
 #
-# Author: Yingkui Li
-# This program derive cirque related metrics based on cirque outlines and a DEM
-# The first step is to determine the cirque threshold points
-# The second step is to derive length and width info, as well as the area, and parameters
-# The third step is to detive the 3D statistics and hypsometric parameters
-# Some of the codes are revised based on the ACME codes by Ramon Pellitero and Matteo Spagnolo 2016
-# 
-# Created:     05/26/2023
-# Copyright:   (c) Yingkui Li 2023
+# Purpose:
+# This tool derives metrics for cross sections (two-sided profiles). The inputs include
+# the DEM, cross sections (can be a file or digitized on screen), the method to refine
+# cross sections, the minimum cross section width between two sides, and the minimum height
+# above the valley floor when refining cross sections. The outputs include the refined cross
+# sections with derived metrics and optional points to refine the cross sections and half
+# cross-section metrics. Because users may provide their own digitized cross sections, this
+# tool also provides the same three options described in the previous tool to refine the cross
+# sections. To help determine the appropriate cross sections, the tool also generates the highest
+# and convex points on both sides of the valley as an optional output. To help facilitate
+# comparisons of morphologies on each side of the valley, the tool also provides an option
+# to save the half cross-section metrics. Similar to the previous tool, this tool also provides
+# an option to specify a folder in which to save the plots of cross-sectional profiles for
+# further analysis.
+#
+# Author: Dr. Yingkui Li
+# Created:     11/07/2024-03/05/2025
+# Department of Geography, University of Tennessee
+# Knoxville, TN 37996
 #-------------------------------------------------------------------------------
 
 from __future__ import division
@@ -35,23 +44,18 @@ if sys.version_info[0] == 2:  ##For ArcGIS 10, need to check the 3D and Spatial 
             arcpy.CheckOutExtension("Spatial")
         else:
             raise Exception ("not extension available")
-            #print "not extension available"
     except:
         raise Exception ("unable to check out extension")
-        #print "unable to check out extension"
 
     try:
         if arcpy.CheckExtension("3D")=="Available":
             arcpy.CheckOutExtension("3D")
         else:
             raise Exception ("not extension available")
-            #print "not extension available"
     except:
         raise Exception ("unable to check out extension")
-        #print "unable to check out extension"
 elif sys.version_info[0] == 3:  ##For ArcGIS Pro
     ArcGISPro = 1
-    #pass ##No need to Check
 else:
     raise Exception("Must be using Python 2.x or 3.x")
     exit()   
@@ -125,9 +129,7 @@ def Check_If_Flip_Line_Direction(line, dem):
     with arcpy.da.SearchCursor(line3d,["Shape@"]) as cursor:
         for row in cursor:
             startZ = row[0].firstPoint.Z
-            #arcpy.AddMessage("startZ: " + str(startZ))
             endZ = row[0].lastPoint.Z
-            #arcpy.AddMessage("endZ: " + str(endZ))
 
             if startZ >= endZ:  ##Flip = True use equal in case the start and end point are the same
                 flip_list.append(1)
@@ -138,9 +140,6 @@ def Check_If_Flip_Line_Direction(line, dem):
     del cursor
     if i>0:
         del row
-
-    #arcpy.AddMessage(flip_list)
-    #arcpy.AddMessage(str(sum(flip_list)))
 
     if sum(flip_list) > 0:
         with arcpy.da.UpdateCursor(line,["Flip"]) as cursor:
@@ -153,7 +152,6 @@ def Check_If_Flip_Line_Direction(line, dem):
 
         arcpy.MakeFeatureLayer_management(line, "lyrLines")
         arcpy.SelectLayerByAttribute_management("lyrLines", "NEW_SELECTION", '"Flip" > 0')
-        #arcpy.AddMessage("The number of fliped lines is: " + str(sum(flip_list)))
         arcpy.FlipLine_edit("lyrLines")  ##Need to change to lyrLines
         arcpy.SelectLayerByAttribute_management("lyrLines", "CLEAR_SELECTION")
 
@@ -228,237 +226,27 @@ def turning_points_RDP(streamLength, streamZ): ###, turning_points = 10, cluster
     normalH = np.array([(y - min_Z)/(max_Z - min_Z) for y in streamZ]) ##+ 0.01
     normalLen = np.array([(y-min_len) /(max_len-min_len) for y in streamLength]) ##+ 0.01
 
-    #plt.plot( normalLen, normalH)
-    #plt.show()
     try: 
         fit_results = k_curve_fit(normalLen, normalH)
         c = fit_results[0]
         R2 = fit_results[1]
         residual = fit_results[2]
     except:
-        #arcpy.AddMessage("Error K-curve")
         c = 100
-    #arcpy.AddMessage(c)
 
     if c < 0:
-        #plt.plot( streamLength, residual)
-        #plt.show()
         max_idx = np.argmax(residual)
-        #arcpy.AddMessage(max_idx)
         max_value = residual[max_idx] * (max_Z - min_Z) ##/linedist
-        #arcpy.AddMessage(max_value)
     else:
         points = np.concatenate([np.expand_dims(streamLength, axis=-1), np.expand_dims(streamZ, axis=-1)], axis=-1)
         start = np.tile(np.expand_dims(points[0], axis=0), (points.shape[0], 1))
         end = np.tile(np.expand_dims(points[-1], axis=0), (points.shape[0], 1))
-        #linedist = Dist(start[0][0],start[0][1],end[0][0],end[0][1])
         dist_point_to_line = np.cross(end - start, points - start, axis=-1) / np.linalg.norm(end - start, axis=-1)
 
         max_idx = np.argmax(dist_point_to_line)
-        #arcpy.AddMessage(max_idx)
         max_value = dist_point_to_line[max_idx]##/linedist
 
     return max_idx, max_value
-
-            
-    
-
-    '''  
-    points = np.concatenate([np.expand_dims(streamLength, axis=-1), np.expand_dims(streamZ, axis=-1)], axis=-1)
-
-
-
-    start = np.tile(np.expand_dims(points[0], axis=0), (points.shape[0], 1))
-    end = np.tile(np.expand_dims(points[-1], axis=0), (points.shape[0], 1))
-    linedist = Dist(start[0][0],start[0][1],end[0][0],end[0][1])
-
-    dist_point_to_line = np.cross(end - start, points - start, axis=-1) / np.linalg.norm(end - start, axis=-1)
-
-    max_idx = np.argmax(dist_point_to_line)
-    #arcpy.AddMessage(max_idx)
-    max_value = dist_point_to_line[max_idx]##/linedist
-
-    return max_idx, max_value
-    #return t_points_arr
-    '''
-    
-def turning_points_RDP_bak2(streamLength, streamZ, num_turning_points = 10, cluster_radius = 200): ###, turning_points = 10, cluster_radius = 200):
-    points = np.concatenate([np.expand_dims(streamLength, axis=-1), np.expand_dims(streamZ, axis=-1)], axis=-1)
-    epsilon = 0.01
-    turn_points = []
-    turn_dists = []
-
-    start = np.tile(np.expand_dims(points[0], axis=0), (points.shape[0], 1))
-    end = np.tile(np.expand_dims(points[-1], axis=0), (points.shape[0], 1))
-    linedist = Dist(start[0][0],start[0][1],end[0][0],end[0][1])
-
-    dist_point_to_line = np.cross(end - start, points - start, axis=-1) / np.linalg.norm(end - start, axis=-1)
-
-    
-    turn_min, turn_max = turning_points(dist_point_to_line)
-
-    #arcpy.AddMessage(turn_min)
-    #arcpy.AddMessage(turn_max)
-    '''
-    ##Adjust turn_min and turn_max list
-    length_list = []
-    dist_list = []
-    for max_idx in turn_max:
-        length_list.append(streamLength[max_idx])
-        dist_list.append(dist_point_to_line[max_idx])
-
-    lengthArr = np.array(length_list)
-    turn_dists = np.array(dist_list)
-    #arcpy.AddMessage(turn_dists)
-
-    
-    turn_point_idx = np.argsort(turn_dists)[::-1]
-    #arcpy.AddMessage(turn_point_idx)
-
-    t_pointsID = []
-    t_dists = []
-
-    while len(t_pointsID) < num_turning_points and len(turn_point_idx) > 0:
-        dist = turn_dists[turn_point_idx[0]]
-        t_pointsID += [turn_point_idx[0]]
-        t_dists.append(turn_dists[turn_point_idx[0]])
-        cumLength = lengthArr[turn_point_idx[0]]
-
-        trueidx = np.where(np.abs(lengthArr - cumLength) < cluster_radius) ##use 100 meter as the way to filter the turning points
-        if len(trueidx[0])> 0:
-            for i in range(len(trueidx[0])):
-                index = trueidx[0][i]
-                turn_point_idx = np.delete(turn_point_idx, np.where(turn_point_idx == index))
-    t_points = []
-    ##Find the original  point-ID infomation
-    #arcpy.AddMessage("The number of turning points: " + str(len(t_pointsID)))
-    #arcpy.AddMessage(t_pointsID)
-
-    #true_turns 
-    for idx in t_pointsID:
-        t_point_idx = turn_max[idx]
-        t_points.append(t_point_idx)
-
-    #arcpy.AddMessage(t_points)
-
-    diff_max = []    
-    for max_idx in t_points:
-        #arcpy.AddMessage((streamLength[idx], dist_point_to_line[idx]))
-        dist_max = dist_point_to_line[max_idx]
-        
-        turn_diff = np.array(turn_min) - max_idx
-        #arcpy.AddMessage(turn_diff)
-
-        diff_list = []
-        if len(turn_diff[turn_diff>0]) > 0: 
-            after_diff = turn_diff[turn_diff>0][0]
-            after_idx = np.where(turn_diff == after_diff)
-            idx = turn_min[after_idx[0][0]]
-            after_dist = dist_point_to_line[idx]
-            diff_list.append (dist_max - after_dist) 
-        if len(turn_diff[turn_diff<0]) > 0: 
-            before_diff = turn_diff[turn_diff<0][-1]
-            before_idx = np.where(turn_diff == before_diff)
-            idx = turn_min[before_idx[0][0]]
-            before_dist = dist_point_to_line[idx]
-            diff_list.append (dist_max - before_dist) 
-
-        #arcpy.AddMessage(max(diff_list))
-        if len(diff_list) > 0:
-            diff_max.append(max(diff_list))
-
-    #arcpy.AddMessage(diff_max)
-
-    diff_max_arr = np.array(diff_max)
-
-
-    t_points_arr = np.array(t_points)
-
-    #arcpy.AddMessage(t_points_arr)
-
-    t_points_arr = t_points_arr[diff_max_arr > 8]
-    
-    #arcpy.AddMessage(t_points_arr)
-
-    #plt.plot( streamLength, dist_point_to_line)
-    #plt.show()
-    '''
-    max_idx = np.argmax(dist_point_to_line)
-    #arcpy.AddMessage(max_idx)
-    max_value = dist_point_to_line[max_idx]##/linedist
-
-    return max_idx, max_value
-    #return t_points_arr
-        
-def turning_points_RDP_bak(streamLength, streamZ, turning_points = 10, cluster_radius = 200):
-    #plt.plot( streamLength, streamZ)
-    #plt.show()
-
-    stream_points = np.concatenate([np.expand_dims(streamLength, axis=-1), np.expand_dims(streamZ, axis=-1)], axis=-1)
-    epsilon = 0.01
-    turn_points = []
-    turn_dists = []
-
-    Knickpoints_rdp(stream_points, epsilon, turn_points, turn_dists)
-    #arcpy.AddMessage(turn_points)
-    #arcpy.AddMessage(turn_dists)
-    
-
-    if len(turn_points) < 1:
-        #arcpy.AddMessage("The number of turning points is 0")
-        return [], []
-    
-    new_x = np.array(turn_points)[:,0]  
-    #arcpy.AddMessage(new_x)
-    turn_point_idx = np.argsort(turn_dists)[::-1]
-
-    t_pointsID = []
-    t_dists = []
-
-    while len(t_pointsID) < turning_points and len(turn_point_idx) > 0:
-        dist = turn_dists[turn_point_idx[0]]
-        if dist < 0.01: 
-            break
-        else:
-            t_pointsID += [turn_point_idx[0]]
-            t_dists.append(turn_dists[turn_point_idx[0]])
-            cumLength = new_x[turn_point_idx[0]]
-
-            trueidx = np.where(np.abs(new_x - cumLength) < cluster_radius)
-            if len(trueidx[0])> 0:
-                for i in range(len(trueidx[0])):
-                    index = trueidx[0][i]
-                    turn_point_idx = np.delete(turn_point_idx, np.where(turn_point_idx == index))
-    t_points = []
-    ##Find the original  point-ID infomation
-    #arcpy.AddMessage("The number of turning points: " + str(len(t_pointsID)))
-    #arcpy.AddMessage(t_pointsID)
-    
-    for i in range(len(t_pointsID)):
-        points = turn_points[t_pointsID[i]]
-        #arcpy.AddMessage(points[1])
-        t_point_idx = np.where((streamZ-points[1]) < 1)[0][0]
-        #arcpy.AddMessage(t_point_idx)
-        
-        t_points.append(t_point_idx)
-
-    return t_points, t_dists
-
-'''
-def turning_points (LengthfromStart, PointZ, 10, 200):
-
-    #logstreamlength = np.log(LengthfromStart[1:])
-    t_points, t_dists = turning_points_RDP(LengthfromStart, PointZ, 3, cellsize_int*5) ##only top 3 turing points should be enough
-    #t_points, t_ratios = turning_points_RDE(LengthfromStart, PointZ, 10, 200)
-    #t_points, t_ratios = turning_points(LengthfromStart, PointZ, turning_points = 5, cluster_radius = cellsize_int*5)
-    #t_points, t_ratios = turning_points_ConvexAngle(LengthfromStart, PointZ, 10, 200)
-
-    for i in range(len(t_points)):
-        idx = t_points[i] + 1 ##the idx should plus 1 because the t_points are only indexed except for the start and end points
-        arcpy.
-        #idx = t_points[i] ##+ 1 ##do not add 1 for the RDP method
-        Ratio = t_ratios[i]
-'''
 
 ##Main program
 # Script arguments
@@ -467,9 +255,9 @@ InputProfiles = arcpy.GetParameterAsText(1)
 AdjustProfile = arcpy.GetParameterAsText(2)
 min_width = arcpy.GetParameter(3)
 min_height = arcpy.GetParameter(4)
-OutputProfileMetrics  = arcpy.GetParameterAsText(5) ##Input turning points or cross sections around the outlet points
-OutputConvexPoints  = arcpy.GetParameterAsText(6) ##Input turning points or cross sections around the outlet points
-OutputHalfProfileMetrics  = arcpy.GetParameterAsText(7) ##Input turning points or cross sections around the outlet points
+OutputProfileMetrics  = arcpy.GetParameterAsText(5) 
+OutputConvexPoints  = arcpy.GetParameterAsText(6)
+OutputHalfProfileMetrics  = arcpy.GetParameterAsText(7) 
 OutputFolder = arcpy.GetParameterAsText(8)
 #environments
 
@@ -486,9 +274,7 @@ cellsize_float = float(cellsize.getOutput(0)) # use float cell size
 arcpy.Delete_management(temp_workspace) ### Empty the in_memory
 profile3D = temp_workspace + "\\profile3D"
 arcpy.InterpolateShape_3d(InputDEM, InputProfiles, profile3D)
-#if OutputHalfProfileMetrics != "":
-#    #arcpy.AddMessage("Divide half valley profiles...")
-#    #arcpy.InterpolateShape_3d(InputDEM, InputProfiles, temp_workspace + "\\profile3D")
+
 
 lowest_X_coord = []
 lowest_Y_coord = []
@@ -533,8 +319,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
     #FID_list = []
     X_coord = []
     Y_coord = []
-    #min_X_coord = []
-    #min_Y_coord = []
     pntType = []
     FID = []
     Height = []
@@ -547,8 +331,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
             LengthfromStart = []
             PointZ = []
             oid = row[1]
-            #arcpy.AddMessage(row[1])
-            #lineLength = float(row[2])
             cumLength = 0
             for part in row[0]:
                 pntCount = 0
@@ -572,9 +354,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
             min_Z = min(pointZArr)
 
             
-            ##the parameters for determine the turning points; May not necessary
-            #step_height = 5
-
             ##Seperate the pointX to two arrays based on the lowest elevation
             array = np.append(pointZArr, np.inf)  # padding so we don't lose last element
             pointXarr = np.append(PointX, np.inf)  # padding so we don't lose last element
@@ -589,21 +368,12 @@ if len(AdjustProfile) > 10:  ##Refine profiles
             splitpointYarr = np.split(pointYarr, split_indices + 1)
             splitpointZarr = np.split(floatZarr, split_indices + 1)
             splitlengtharr = np.split(LengthArr, split_indices + 1)
-            #z_min = PointZ[split_indices[0]]
-
-            #minPointX = pointXarr[split_indices][0]
-            #minPointY = pointXarr[split_indices][0]
-            #min_X_coord.append(minPointX)
-            #min_Y_coord.append(minPointY)
-
 
             ##Cut the cross section by the lowest point and then to cut the highest points into each half
             k = 0
             for subarray in splitarray:
-                #arcpy.AddMessage("side: #" + str(k))
                 if len(subarray) > 5: ##the half profile should at least have 5 points
                     half_pointZarr = subarray[:-1]
-                    #arcpy.AddMessage(half_pointZarr/100)
 
                     subpointXarr = splitpointXarr[k]
                     half_pointXarr = subpointXarr[:-1]
@@ -616,7 +386,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
 
                     z_max = max(half_pointZarr)
                     z_min = min(half_pointZarr)
-                    #arcpy.AddMessage(z_min)
                     idx = np.where(half_pointZarr == z_max)[0][0]
 
                     ##Record the X and Y coordinates for the highest points
@@ -635,8 +404,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
                     #plt.plot( half_lengtharr, half_pointZarr/100)
                     #plt.show()
                     if "convex" in AdjustProfile: 
-                        #arcpy.AddMessage("Cut the cross sections by the largest convex points on each side...")
-                        #init_height = int(min_height)
                         if (half_pointZarr[0] > half_pointZarr[-1]): ##Left side of the profile
                             validpointZarr = half_pointZarr[idx:]
                             validpointXarr = half_pointXarr[idx:]
@@ -650,10 +417,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
                             validlengtharr = np.flip(half_lengtharr[:idx+1])
                             validlengtharr = max(validlengtharr) - validlengtharr ##normalize the length values
 
-                        #plt.plot( validlengtharr, validpointZarr/100)
-                        #plt.show()
-                        #arcpy.AddMessage(len(validlengtharr))
-                        #arcpy.AddMessage(validlengtharr)
                         idx = 0
                         dist = 1000
 
@@ -662,17 +425,7 @@ if len(AdjustProfile) > 10:  ##Refine profiles
                         looppointXarr = validpointXarr[idx:]
                         looppointYarr = validpointYarr[idx:]
                         loop_height = 10*min_height
-                        '''
-                        t_points = turning_points_RDP(validlengtharr, validpointZarr/100) 
 
-                        for idx in t_points:
-                            X_coord.append(validpointXarr[idx])
-                            Y_coord.append(validpointYarr[idx])
-                                                        
-                            pntType.append(2)  ##1: convex points
-
-
-                        '''
                         #loop = 1
                         while (True):
                             #turning_points_RDP(looplengtharr, looppointZarr/100) ###, 1, int(cellsize_float)*3) ##only top 1 turing points should be enough
@@ -701,61 +454,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
                             else:
                                 break
 
-                        '''
-                        ##only use the maximum dist (the first) to divide the profile
-                        if len(t_points)> 0:
-                            ##record the x and Y coordiantes
-                            idx = t_points[0]
-                            #arcpy.AddMessage(idx)
-                            X_coord.append(validpointXarr[idx])
-                            Y_coord.append(validpointYarr[idx])
-                            pntType.append(2)  ##1: convex points
-                        
-                        ##Cut the the profile based on the (min_Z + init_height*100)
-                        validpointZarr = np.append(validpointZarr, 0)  # padding so we don't lose last element
-                        validpointXarr = np.append(validpointXarr, 0)  # padding so we don't lose last element
-                        validpointYarr = np.append(validpointYarr, 0)  # padding so we don't lose last element
-                        validlengtharr = np.append(validlengtharr, 0)  # padding so we don't lose last element
-                        #LengthArr = np.append(LengthfromStart, np.inf)
-
-                        split_indices = np.where(validpointZarr <= (min_Z + init_height*100))[0]
-                        splithalfZarray = np.split(validpointZarr, split_indices + 1)
-                        splithalfXarr = np.split(validpointXarr, split_indices + 1)
-                        splithalfYarr = np.split(validpointYarr, split_indices + 1)
-                        splithalfLarr = np.split(validlengtharr, split_indices + 1)
-
-                        kk = 0
-                        for subhalfarray in splithalfZarray:
-                            if len(subhalfarray) > 3: ##the half profile should at least have 3 points
-                                half_validZarr = subhalfarray[:-1]
-                                
-                                subhalfXarr = splithalfXarr[kk]
-                                half_validXarr = subhalfXarr[:-1]
-                                
-                                subhalfYarr = splithalfYarr[kk]
-                                half_validYarr = subhalfYarr[:-1]
-
-                                subhalfLarr = splithalfLarr[kk]
-                                half_validLarr = subhalfLarr[:-1]
-
-                                #plt.plot( half_validLarr, half_validZarr/100)
-                                #plt.show()
-
-                                ##Apply the turning point method
-                                #arcpy.AddMessage(half_validLarr)
-                                #arcpy.AddMessage(half_validZarr)
-                                t_points, t_dists = turning_points_RDP(half_validLarr, half_validZarr, 1, int(cellsize_float)*3) ##only top 1 turing points should be enough
-
-                                ##only use the maximum dist (the first) to divide the profile
-                                if len(t_points)> 0:
-                                    ##record the x and Y coordiantes
-                                    idx = t_points[0]
-                                    #arcpy.AddMessage(idx)
-                                    X_coord.append(half_validXarr[idx])
-                                    Y_coord.append(half_validYarr[idx])
-                                    pntType.append(2)  ##1: convex points
-                            kk += 1
-                         ''' 
                 k += 1        
 
     #arcpy.CopyFeatures_management(lowest_points, "d:\\temp\\lowest_points.shp") 
@@ -777,9 +475,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
             ptypeStr = "Convex"
         new_point_cursor.insertRow([pnt, i, FID[i], side[i], ptypeStr, Height[i], Length[i]])
     del new_point_cursor
-
-    #if OutputConvexPoints != "":
-    #    arcpy.CopyFeatures_management(bnd_points, OutputConvexPoints)
 
     ##Check the cutting points and choose the most reasonable coutpoints for each cross section
     SectionArr = np.array(FID)
@@ -838,10 +533,7 @@ if len(AdjustProfile) > 10:  ##Refine profiles
                     if total_diff < min_diff:
                         min_diff = total_diff
                     
-            #arcpy.AddMessage(min_diff)
             x, y = np.where(diff_matrix == min_diff)
-            #arcpy.AddMessage(diff_matrix)
-            #arcpy.AddMessage((x[0], y[0]))
             if len(x)>0:
                 left_height = left_heights[x[0]]
                 left_width = left_widths[x[0]]
@@ -874,7 +566,6 @@ if len(AdjustProfile) > 10:  ##Refine profiles
                 final_Length.append(right_width)
 
 
-    #arcpy.CopyFeatures_management(lowest_points, "d:\\temp\\lowest_points.shp") 
     final_bnd_points = arcpy.CreateFeatureclass_management(temp_workspace + "", "final_bnd_points","POINT", "","","", spatialref)
     arcpy.AddField_management(final_bnd_points, 'PntID', 'Long', 6) 
     arcpy.AddField_management(final_bnd_points, 'SectionID', 'Long', 6) 
@@ -1067,26 +758,20 @@ with arcpy.da.SearchCursor(profile3D, ["ProfileID", "SHAPE@", "SHAPE@LENGTH"]) a
                 valley_heights.append(z_max - z_min)
                 z_mean = sum(half_arr) / len(half_arr)
                 pr = (z_mean - z_min) / (z_max - z_min + 0.001) ##to prevent the divide of zero
-                #wh =  section_len*(len(half_arr)-1) / (z_max - z_min)
-                #weight = (len(half_arr)-1)/total_sections
                 weight = (half_lengths[-1]-half_lengths[0])/max_length
 
-                #arcpy.AddMessage(weight)
                 
                 weights.append(weight)
 
                 profile_integal += weight * pr
-                #WH_ratio += weight * wh
-                #total_weight += weight
+
                 v_area_under = (z_max - z_min) * (half_lengths[-1]-half_lengths[0]) * 0.5
 
                 x_area_under = (z_mean - z_min) * (half_lengths[-1]-half_lengths[0])
                 
                 v_under_areas.append(v_area_under)
-                #arcpy.AddMessage(("v_area_under", v_area_under))
 
                 x_under_areas.append(x_area_under)
-                #arcpy.AddMessage(("x_area_under", x_area_under))
                 
         if len(valley_heights) > 1:
             total_area = sum(valley_heights) * max(LengthfromStart) * 0.5
@@ -1205,17 +890,11 @@ with arcpy.da.SearchCursor(profile3D, ["ProfileID", "SHAPE@", "SHAPE@LENGTH"]) a
         max_R2 = max(R2_list)
         idx = R2_list.index(max_R2)
 
-        #if max_R2 > 1:
-        #    arcpy.AddMessage(max_R2)
-        #    arcpy.AddMessage(R2_list)
-        #    arcpy.AddMessage(validHArr)
 
         VWDR_m_list.append(m_list[idx])
         VWDR_n_list.append(n_list[idx])
         VWDR_r2_list.append(R2_list[idx])                    
 
-        #arcpy.AddMessage("Done!")
-        
         ##Derive quadratic equation fit for the profile along the width line 03/15/2023
         polyfit_results = polyfit(LengthfromStart,PointZ, 2)
         c = polyfit_results['polynomial'][0] * 100 ##times 100 to enlarge the data
@@ -1245,8 +924,6 @@ with arcpy.da.UpdateCursor(OutputProfileMetrics, fields) as cursor:
             row[6] = f'{asymmetry_list[fid]:.3f}'
             row[7] = VWDR_m_list[fid]
             row[8] = VWDR_n_list[fid]
-            #row[9] = f'{HH_list[fid]:.2f}'
-            #arcpy.AddMessage(VWDR_r2_list[fid])
             VWDR_r2 = VWDR_r2_list[fid]
             row[9] = f'{VWDR_r2: .3f}'
             row[10] = f'{v_index_list[fid]:.3f}'
@@ -1369,7 +1046,6 @@ if OutputHalfProfileMetrics != "":
             min_Z = min(PointZ)
             mean_Z = sum(PointZ) / len(PointZ)
             PI = (mean_Z - min_Z) / (max_Z - min_Z)+ 0.001 ##add 0.001 to avoid the divide of zero
-            #arcpy.AddMessage("High-length HI: " + str(HI))
             PI_list.append(PI)
 
             height = max_Z - min_Z
@@ -1383,14 +1059,10 @@ if OutputHalfProfileMetrics != "":
             profgrad_list.append(gradient)
 
             ##Calculate the HL-Aspect
-            #dz  = PointZ[-1] - PointZ[0]
             dx  = PointX[0] - PointX[-1]
             dy  = PointY[0] - PointY[-1]
-            #arcpy.AddMessage(str(dx))
-            #arcpy.AddMessage(str(dy))
 
             aspect = 180.0/math.pi * math.atan2(dy, dx)
-            #arcpy.AddMessage("Aspect is: " + str(aspect))
             if aspect < 90:
                 adj_aspect = 90.0 - aspect
             else:
@@ -1409,9 +1081,6 @@ if OutputHalfProfileMetrics != "":
             max_len = max(LengthfromStart)
             norm_lenArr = LenArr / max_len
 
-            #validHArr = HArr[np.logical_and(HArr > 0, LenArr > 0)]
-            #validLenArr = LenArr[np.logical_and(HArr > 0, LenArr > 0)]
- 
             valid_norm_HArr = norm_HArr[np.logical_and(HArr > 0, LenArr > 0)]
             valid_norm_lenArr = norm_lenArr[np.logical_and(HArr > 0, LenArr > 0)]
 
@@ -1419,24 +1088,12 @@ if OutputHalfProfileMetrics != "":
             V_HArr = np.zeros(num)
             for ii in range(num):
                 V_HArr[ii] = ii/num
-            #V_HArr[-1] = 0
 
             offsets = valid_norm_HArr - V_HArr
-            #arcpy.AddMessage(V_HArr) 
-            #arcpy.AddMessage(valid_norm_HArr) 
-            #arcpy.AddMessage(offsets) 
             nci = np.median(offsets)
-            #arcpy.AddMessage(nci) 
             nci_list.append(nci)
             sci = 1-2*PI
             sci_list.append(sci)
-            #arcpy.AddMessage(sci) 
-            #arcpy.AddMessage(offsets) 
-
-
-            #plt.plot( valid_norm_lenArr, valid_norm_HArr)
-            #plt.plot( valid_norm_lenArr, V_HArr)
-            #plt.show()
    
 
             ##Do the normalized regression!!!         
@@ -1463,7 +1120,6 @@ if OutputHalfProfileMetrics != "":
                 a = np.exp(polyfit_results['polynomial'][1])
                 R2 = polyfit_results['determination']
             except:
-                #arcpy.AddMessage("There is an error!")
                 b = -999
                 a = -999
                 R2 = -999
@@ -1490,7 +1146,6 @@ if OutputHalfProfileMetrics != "":
                 max_slp = np.max(slopes)
 
             p_close = max_slp - min_slp
-            #arcpy.AddMessage("the profile closure is: " + str(p_close))
             P_clos_list.append(p_close)
 
             #K-curve-fit
@@ -1516,24 +1171,18 @@ if OutputHalfProfileMetrics != "":
             LenArr = np.array(LengthfromStart)
             ReverseLengthArr = max(LenArr) - LenArr
 
-            #validHArr = HArr[np.logical_and(HArr > 0, ReverseLengthArr > 0)]
-            #validLenArr = LenArr[np.logical_and(HArr > 0, ReverseLengthArr > 0)]
             validHArr = HArr[ReverseLengthArr > 0]
             validLenArr = ReverseLengthArr[ReverseLengthArr > 0]
 
             try:
                 polyfit_results = polyfit(np.log(validLenArr), validHArr, 1)
                 sl = polyfit_results['polynomial'][0]
-                #c = np.exp(polyfit_results['polynomial'][1])
                 R2 = polyfit_results['determination']
             except:
-                #arcpy.AddMessage("There is an error!")
                 sl = -999
-                #a = -999
                 R2 = -999
 
             SL_list.append(-sl) ##use the positive value
-            #SL_c_list.append(b)
             SL_r2_list.append(R2)
             
             i += 1
@@ -1574,7 +1223,6 @@ if OutputHalfProfileMetrics != "":
                 #update cursor
                 cursor.updateRow(row)
             except:
-                #arcpy.AddMessage("There is an error in the calculation. Move to the next one")
                 pass
     del row, cursor
 
