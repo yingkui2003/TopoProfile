@@ -462,7 +462,17 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
 
     ###Step 1: Stream network
     arcpy.AddMessage("Step 1: Stream extraction...")
- 
+
+    ##set the parallelProcessingFactor for large DEMs
+    dem = Raster(InputDEM)
+    nrow = dem.height
+    ncol = dem.width
+
+    oldPPF = arcpy.env.parallelProcessingFactor
+    if (nrow > 1500 or ncol > 1500):
+        arcpy.AddMessage("The DEM has " +str(nrow) + " rows and " + str(ncol) + " columns")
+        arcpy.env.parallelProcessingFactor = 0 ##use 0 for large rasters
+    
     #Calculate Flowdirection
     fillDEM =Fill(InputDEM)  ##Fill the sink first
     fdir = FlowDirection(fillDEM,"NORMAL") ##Flow direction
@@ -670,6 +680,9 @@ def streamline_from_Stream_Network (InputDEM, InputValleyorCrossSection, StreamT
     ##Merge streamline and add ValleyID
     Check_If_Flip_Line_Direction (outstreamline, fillDEM) ##use fillDEM because the orginal DEM may have problems
     Merge_and_Add_ValleyID_by_Topology (outstreamline, "Max_Max", ValleyID, "MergeID", StreamLine)
+
+    ##Reset parallelProcessingFactor to the default
+    arcpy.env.parallelProcessingFactor = oldPPF
 
 ##Main program
 if __name__ == '__main__':

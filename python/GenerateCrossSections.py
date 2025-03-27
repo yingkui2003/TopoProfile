@@ -349,6 +349,16 @@ def create_cross_sections(flowlinepoints, flowline, beddem, constrainboundary, e
     arcpy.env.cellSize = extDEM
     arcpy.env.snapRaster = extDEM ##setup snap raster
 
+    ##set the parallelProcessingFactor for large DEMs
+    nrow = extDEM.height
+    ncol = extDEM.width
+
+    oldPPF = arcpy.env.parallelProcessingFactor
+    if (nrow > 1500 or ncol > 1500):
+        arcpy.AddMessage("The DEM has " +str(nrow) + " rows and " + str(ncol) + " columns")
+        arcpy.env.parallelProcessingFactor = 0 ##use 0 for large rasters
+
+        
     fillDEM =Fill(extDEM)  ##Fill the sink first
     fdir = FlowDirection(fillDEM,"NORMAL") ##Flow direction
     facc = FlowAccumulation(fdir) ##Flow accmulation
@@ -433,6 +443,9 @@ def create_cross_sections(flowlinepoints, flowline, beddem, constrainboundary, e
     if i>0:
         del perp
     del perps
+
+    ##Reset parallelProcessingFactor to the default
+    arcpy.env.parallelProcessingFactor = oldPPF
 
     if eraseAreas != "":
         fieldmappings = arcpy.FieldMappings()
