@@ -6,15 +6,13 @@ The github site includes an ArcGIS Pro toolbox (atbx) file and a python folder, 
 A zip file of the whole github folder will be downloaded to the local computer. Unzip this file will create a TopoProfiles-main folder with all folders and files. The user can use the toolbox in ArcGIS Pro, check the source codes, and continue improving this toolbox. Note that the source code file has been imported to each tool in the current version, so that the toolbox can be run without the python files. However, if you revise the python files, the tool will not changed until you import the python file to each tool.    
 
 # TopoProfile
-TopoProfile is an ArcGIS toolbox to delineate streamlines, generate cross-valley topographic profiles, derive profile integral and a range of other metrics for both one-sided and two-sided profiles. This toolbox includes four tools to: 1) delineate streamlines or valley bottom lines; 2) generate cross sections along the streamlines based on user-specified spacing and width of the cross sections; 3) derive PIs and other related metrics for specified cross sections; and 4) derive the PI and other metrics related to longitudinal profiles. The following table lists the metrics that the tools can derived for one-sided and two-sided profiles.
-
-![image](https://github.com/user-attachments/assets/17770e53-4381-4b32-a157-591323560a7f)
-
-
-All these tools are written with Python in ArcGIS Pro and can be used for both one-sided and two-sided topographic profiles.
+TopoProfile is an ArcGIS toolbox to delineate streamlines, generate cross-valley topographic profiles, derive profile integral and a range of other metrics for both one-sided and two-sided profiles. This toolbox includes four tools to: 1) delineate streamlines or valley bottom lines; 2) generate cross sections along the streamlines based on user-specified spacing and width of the cross sections; 3) derive PIs and other related metrics for specified cross sections; and 4) derive the PI and other metrics related to longitudinal profiles. All these tools are written with Python in ArcGIS Pro and can be used for both one-sided and two-sided topographic profiles.
 
 ![image](https://github.com/user-attachments/assets/3124be2a-a1a0-49be-8ae1-d06fc4a1bab2)
 
+The following table lists the metrics that can be derived by this toolbox for one-sided and two-sided profiles.
+
+![image](https://github.com/user-attachments/assets/17770e53-4381-4b32-a157-591323560a7f)
 
 # Delineate streamlines
 The ‘Delineate streamlines’ tool derives a streamline or valley bottom line based on a digital elevation model (DEM) and a specified lowest valley boundary or cross section, which can be defined as an input feature class file (polylines or polygons) or can be digitized on screen. Other required inputs include the minimum source area to start a streamline (km2), the minimum total contribution area of a stream before joining another stream (km2), and the minimum tributary to main valley ratio (Li and Zhao 2022; Li, 2023). The tool also provides three different ways to smooth streamlines: 1) fixed smoothing based on a user-specified smoothing distance; 2) varied smoothing based on Kienholz et al. (2014) for glacier studies; and 3) no smoothing. The output of this tool includes derived streamlines and optional watershed boundaries corresponding to the lowest valley locations. This tool is revised from the PalaeoIce toolbox (Li, 2023).
