@@ -28,13 +28,13 @@ The ‘Derive Cross Section Metrics’ tool derives metrics for cross sections (
 ![image](https://github.com/user-attachments/assets/162d9473-fa8a-4dee-ad5f-248c3d4b9778)
 
 # Derive One-sided Profile Metrics
-The ‘Derive One-sided Profile Metrics’ tool derives the metrics for one-sided profiles, such as river longitudinal profiles, slope profiles, and half valley profiles. The inputs include the DEM, topographic profiles (can be a file or digitized on screen), and whether it is necessary to cut profiles by the highest elevation points. The output consists of the profiles with derived metrics as attributes (Fig. 2d). This tool also provides an option to specify a folder in which to save the plots of the topographic profiles for further analysis.
+The ‘Derive One-sided Profile Metrics’ tool derives the metrics for one-sided profiles, such as river longitudinal profiles, slope profiles, and half valley profiles. The inputs include the DEM, topographic profiles (can be a file or digitized on screen), and whether it is necessary to cut profiles by the highest elevation points. The output consists of the profiles with derived metrics as attributes. This tool also provides an option to specify a folder in which to save the plots of the topographic profiles for further analysis.
 
 ![image](https://github.com/user-attachments/assets/ecd7a48d-c4e0-4904-8a21-13f0123d6261)
 
 
 # Cite this work
-Li Y., Evans, I.S., Harbor, J., in review. Profile Integral: a robust and flexible metric to measure the concavity/convexity of a topographic profile.
+Li, Y., Evans, I.S., Harbor, J., 2025. Profile Integral: A robust and flexible metric to measure the concavity/convexity of a topographic profile. Geomorphology 109817. https://doi.org/10.1016/j.geomorph.2025.109817.
 
 # Contact info
 Yingkui Li
