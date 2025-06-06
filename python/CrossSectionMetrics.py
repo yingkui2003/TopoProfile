@@ -32,6 +32,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 from scipy import optimize
 import matplotlib.pyplot as plt
+import pandas as pd
 
 arcpy.env.overwriteOutput = True
 arcpy.env.XYTolerance= "0.01 Meters"
@@ -715,6 +716,11 @@ with arcpy.da.SearchCursor(profile3D, ["ProfileID", "SHAPE@", "SHAPE@LENGTH"]) a
             plotlink = "file:///" + filename
             plot_list.append(plotlink)
 
+            csvfile = OutputFolder + "\\ProfileID_" + str(fcID)+".csv"
+            df = pd.DataFrame({'Length': np.array(LengthfromStart), 'Elevation': np.array(PointZ)})
+            df.to_csv(csvfile, index=False)
+
+
         ##Calculate the PR value  Need to determine the weighted average PR value????
         pointZArr = (np.array(PointZ)*100).astype(int) ##time 100 to make sure that the elevation can be accurate to 0.01 m
         #arcpy.AddMessage(max(LengthfromStart) - line_length)
@@ -803,7 +809,7 @@ with arcpy.da.SearchCursor(profile3D, ["ProfileID", "SHAPE@", "SHAPE@LENGTH"]) a
         height = (max(PointZ) - min(PointZ))
         Amp_list.append(height)
 
-        WH_ratio = line_length / height
+        WH_ratio = line_length / (height + 0.001) ## to avoid the division by zero
         WH_list.append(WH_ratio)
 
         ##Derive VWDR Li et al (2001)
@@ -873,27 +879,36 @@ with arcpy.da.SearchCursor(profile3D, ["ProfileID", "SHAPE@", "SHAPE@LENGTH"]) a
             cutoff_height = ii * 20
             validHArr = HArr[HArr > cutoff_height]
             validWDratioArr = WDratioArr[HArr > cutoff_height]
+            if len(validWDratioArr) > 2:
+                polyfit_results = polyfit(np.log(np.array(validHArr)), np.log(np.array(validWDratioArr)), 1)
+                n = polyfit_results['polynomial'][0]
+                m = np.exp(polyfit_results['polynomial'][1])
+                R2 = polyfit_results['determination']
 
-            polyfit_results = polyfit(np.log(np.array(validHArr)), np.log(np.array(validWDratioArr)), 1)
-            n = polyfit_results['polynomial'][0]
-            m = np.exp(polyfit_results['polynomial'][1])
-            R2 = polyfit_results['determination']
-
-            n_list.append(n)
-            m_list.append(m)
-            R2_list.append(R2)
+                n_list.append(n)
+                m_list.append(m)
+                R2_list.append(R2)
             
-            if (R2 > 0.8) or (len(validHArr) < 5):
+                if (R2 > 0.8): #or (len(validHArr) < 5):
+                    break
+            else:
+                #arcpy.AddMessage(len(validHArr))
+                #n_list.append(None)
+                #m_list.append(None)
+                #R2_list.append(None)
                 break
             ii += 1
-
-        max_R2 = max(R2_list)
-        idx = R2_list.index(max_R2)
-
-
-        VWDR_m_list.append(m_list[idx])
-        VWDR_n_list.append(n_list[idx])
-        VWDR_r2_list.append(R2_list[idx])                    
+        
+        if len(R2_list) > 0:
+            max_R2 = max(R2_list)
+            idx = R2_list.index(max_R2)
+            VWDR_m_list.append(m_list[idx])
+            VWDR_n_list.append(n_list[idx])
+            VWDR_r2_list.append(R2_list[idx])                    
+        else:
+            VWDR_m_list.append(None)
+            VWDR_n_list.append(None)
+            VWDR_r2_list.append(None)                    
 
         ##Derive quadratic equation fit for the profile along the width line 03/15/2023
         polyfit_results = polyfit(LengthfromStart,PointZ, 2)
@@ -935,7 +950,7 @@ with arcpy.da.UpdateCursor(OutputProfileMetrics, fields) as cursor:
             #update cursor
             cursor.updateRow(row)
         except:
-            arcpy.AddMessage("There is an error in the calculation. Move to the next one")
+            #arcpy.AddMessage("There is an error in the calculation. Move to the next one")
             pass
 
 del row, cursor

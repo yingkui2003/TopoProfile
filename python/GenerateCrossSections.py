@@ -46,6 +46,7 @@ from scipy.spatial import cKDTree as KDTree
 from scipy import ndimage
 import arcpy.cartography as CA
 import matplotlib.pyplot as plt
+import pandas as pd
 
 arcpy.env.overwriteOutput = True
 arcpy.env.XYTolerance= "0.01 Meters"
@@ -78,54 +79,6 @@ else:
 temp_workspace = "in_memory"  
 if ArcGISPro:
     temp_workspace = "memory"
-
-#------------------------------------------------------------------------------------------------------------
-# This function check each line in the line feature and make sure the line is from low elevation to high
-# elevation (Glacier streamline needs from low to high elevation in order to reconstruct the paleo ice thickness).
-# It is revised from the codes by Pellitero et al.(2016) in GlaRe.
-#------------------------------------------------------------------------------------------------------------
-def Check_If_Flip_Line_Direction(line, dem):
-    cellsize = arcpy.GetRasterProperties_management(dem,"CELLSIZEX")
-    cellsize_int = int(float(cellsize.getOutput(0)))
-
-    line3d = arcpy.env.scratchGDB + "\\line3d"
-    arcpy.AddField_management(line, "Flip", "Long", "", "", "", "", "", "", "")
-
-    arcpy.InterpolateShape_3d(dem, line, line3d, cellsize_int*3) 
-
-    flip_list = []
-    i = 0
-    with arcpy.da.SearchCursor(line3d,["Shape@"]) as cursor:
-        for row in cursor:
-            startZ = row[0].firstPoint.Z
-            endZ = row[0].lastPoint.Z
-
-            if startZ >= endZ:  ##Flip = True use equal in case the start and end point are the same
-                flip_list.append(1)
-            else:  ##Flip = False
-                flip_list.append(0)
-            i += 1 
-
-    del cursor
-    if i>0:
-        del row
-
-    if sum(flip_list) > 0:
-        with arcpy.da.UpdateCursor(line,["Flip"]) as cursor:
-            i = 0
-            for row in cursor:
-                row[0] = flip_list[i]
-                cursor.updateRow(row)
-                i += 1 
-        del row, cursor
-
-        arcpy.MakeFeatureLayer_management(line, "lyrLines")
-        arcpy.SelectLayerByAttribute_management("lyrLines", "NEW_SELECTION", '"Flip" > 0')
-        arcpy.FlipLine_edit("lyrLines")  ##Need to change to lyrLines
-        arcpy.SelectLayerByAttribute_management("lyrLines", "CLEAR_SELECTION")
-
-    arcpy.DeleteField_management (line, "Flip")
-    arcpy.Delete_management(line3d)
 
 
 #---------------------------------------------------------------------------------------------------------------
@@ -199,146 +152,74 @@ def turning_points_RDP(streamLength, streamZ): ###, turning_points = 10, cluster
 # the extent of these points. The division between the perp lines in different valleys are determined by the
 # EU Allocation tool in ArcGIS.
 #------------------------------------------------------------------------------------------------------------
-def create_cross_sections(flowlinepoints, flowline, beddem, constrainboundary, eraseAreas, cellsize_float, half_width, spacing): ##, min_width, b_divide): 
+def create_cross_sections(flowlinepoints, field, distance, spacing):  
 
     spatialref=arcpy.Describe(flowlinepoints).spatialReference
-    width = half_width  ##only use the half the width for each side of the flowline
+    pointarr=arcpy.da.FeatureClassToNumPyArray(flowlinepoints, ('SHAPE@X', 'SHAPE@Y', "LineID"))
+    line_ids = np.array([item[2] for item in pointarr])
+    unique_line_ids = np.unique(line_ids)
 
-    ##Step 1: data preparation
-    arcpy.AddMessage("Step 1: data preparation...")
-    flowlinepointscp = arcpy.CopyFeatures_management(flowlinepoints, temp_workspace + "\\flowlinepointscp")
-    arcpy.AddField_management(flowlinepointscp, 'PntID', 'Long', 6) ##OFID is not FID, but it is related to FID
-    arcpy.CalculateField_management(flowlinepointscp,"PntID",str("!"+str(arcpy.Describe(flowlinepointscp).OIDFieldName)+"!"),"PYTHON_9.3")
-
-    arcpy.AddField_management(flowline, 'SegmentID', 'Long', 6) 
-    arcpy.CalculateField_management(flowline,"SegmentID",str("!"+str(arcpy.Describe(flowline).OIDFieldName)+"!"),"PYTHON_9.3")
-
-    flowlinepointscopy = temp_workspace + "\\flowlinepointscopy"
-    arcpy.SpatialJoin_analysis(flowlinepointscp, flowline, flowlinepointscopy, "JOIN_ONE_TO_ONE", "KEEP_COMMON", '#', "INTERSECT", "1 Meters", "#")
-
-    arr=arcpy.da.FeatureClassToNumPyArray(flowlinepointscopy, ('SHAPE@X', 'SHAPE@Y', 'PntID', 'OFID', 'SegmentID'))
-    segment_ids = np.array([item[4] for item in arr])
-    unique_segment_ids = np.unique(segment_ids)
-
-    ##Step 2: create perpendicular lines along the flowpoints
-    arcpy.AddMessage("Step 2: create cross sections along the streamlines...")
-    distance = width
-        
     perpendiculars = arcpy.CreateFeatureclass_management(temp_workspace, "perpendiculars","POLYLINE", "","","", spatialref)
-    arcpy.AddField_management(perpendiculars, 'FlowlineID', 'Long', 6) 
-    arcpy.AddField_management(perpendiculars, 'SegmentID', 'Long', 6) 
-    arcpy.AddField_management(perpendiculars, 'FlowPntID', 'Long', 6) 
-    
-    exclude_PntID = []
-    new_line_cursor = arcpy.da.InsertCursor(perpendiculars, ('SHAPE@', 'FlowPntID' , 'FlowlineID', 'SegmentID'))
-    
-    for row in range(len(arr)):
-        if row > 0: ##not the first point
-            startx = arr[row][0]
-            starty = arr[row][1]
-            creat_perp = 1
-            if row <(len(arr)-1):
-                if arr[row][3]==arr[row+1][3] and arr[row][3]==arr[row-1][3]: ##inside points
-                    endx = arr[row+1][0]
-                    endy = arr[row+1][1]
-                elif arr[row][3]==arr[row+1][3]: ##start tributary points
-                    exclude_PntID.append(arr[row][2])
-                    creat_perp = 0
-                else: ##end of the tributary
-                    endx = arr[row-1][0]
-                    endy = arr[row-1][1]
-            else:
-                endx = arr[row-1][0]
-                endy = arr[row-1][1]
+    arcpy.AddField_management(perpendiculars, field, 'Long', 10)
 
-            if creat_perp > 0:
-                if starty==endy or startx==endx:
-                    if starty == endy:
-                        y1 = starty + distance
-                        y2 = starty - distance
-                        x1 = startx
-                        x2 = startx
-                    if startx == endx:
-                        y1 = starty
-                        y2 = starty 
-                        x1 = startx + distance
-                        x2 = startx - distance     
+    new_line_cursor = arcpy.da.InsertCursor(perpendiculars, ('SHAPE@', field))
+    ##Loop for each streamline
+    for line_id in unique_line_ids:
+        arr = pointarr[line_ids == line_id]
+        ##Loop for each section to create a cross valley profile
+        for i in range(len(arr)-1): 
+            startx = arr[i][0]
+            starty = arr[i][1]
+            endx = arr[i+1][0]
+            endy = arr[i+1][1]
+            centx = (startx + endx) /2
+            centy = (starty + endy) /2
+
+            normal = 1
+            if starty==endy or startx==endx:
+                if starty == endy:
+                    y1 = centy + distance
+                    y2 = centy - distance
+                    x1 = centx
+                    x2 = centx
+                if startx == endx:
+                    y1 = centy
+                    y2 = centy 
+                    x1 = centx + distance
+                    x2 = centx - distance     
+            else:
+                ##This is revised codes, much simplified!! 11/09/2024
+                offsety = distance * (startx - endx) / spacing
+                offsetx = distance * (starty - endy) / spacing
+
+                if (abs(offsetx) > distance) or (abs(offsety) > distance):
+                    #arcpy.AddMessage((offsetx,offsety))
+                    #arcpy.AddMessage(line_id)
+                    normal = 0  
                 else:
-                    ##This is revised codes, much simplified!! 11/09/2024
-                    offsety = distance * (startx - endx) / spacing
-                    offsetx = distance * (starty - endy) / spacing
-                    y1 = starty + offsety 
-                    y2 = starty - offsety
-                    x1 = startx - offsetx
-                    x2 = startx + offsetx
- 
+                    y1 = centy + offsety 
+                    y2 = centy - offsety
+                    x1 = centx - offsetx
+                    x2 = centx + offsetx
+            if normal > 0:
                 array = arcpy.Array([arcpy.Point(x1,y1),arcpy.Point(x2, y2)])
                 polyline = arcpy.Polyline(array)
-                lineID = arr[row][3]
-                pntID = arr[row][2]
-                segID = arr[row][4]
-                new_line_cursor.insertRow([polyline, pntID, lineID, segID])
+                new_line_cursor.insertRow([polyline, line_id])
                 
     del new_line_cursor
-    '''
-    ##Step 3: Use EU Alloation to cut perp lines
-    arcpy.AddMessage("Step 3: Use EU Alloation to cut perp lines")
-    ##divide watershed by different flowlines
-    ##Delete the exclude_points
-    if len(exclude_PntID) > 0:
-        with arcpy.da.UpdateCursor(flowlinepointscopy, 'PntID') as cursor:
-            for row in cursor:
-                if row in exclude_PntID:
-                    cursor.deleteRow()
-        del row, cursor
 
-    # Process: Euclidean Allocation
-    eucAllocate = EucAllocation(flowlinepointscopy, "", "", cellsize_float,'SegmentID', "", "")
-    
-    arcpy.RasterToPolygon_conversion(eucAllocate, temp_workspace + "\\eucAllocate", "SIMPLIFY", "VALUE")
+    return perpendiculars
 
-    ##Clip the cross section using the watershed boundary
-    if constrainboundary != "":
-        arcpy.Clip_analysis (temp_workspace + "\\eucAllocate", constrainboundary, temp_workspace + "\\clipAllocation")
-        arcpy.CopyFeatures_management(temp_workspace + "\\clipAllocation", temp_workspace + "\\eucAllocate")
-
-    selAllocation = temp_workspace + "\\selAllocation"
-    sel_perp = temp_workspace + "\\sel_perp"
-    clipedlines = temp_workspace + "\\clipedlines"
-
-    for segment_id in unique_segment_ids:
-        query = "gridcode = " + str(segment_id) 
-        arcpy.Select_analysis (temp_workspace + "\\eucAllocate", selAllocation, query)
-        query = "SegmentID = "+ str(segment_id) 
-        arcpy.Select_analysis (perpendiculars, sel_perp, query)
-
-        arcpy.Clip_analysis (sel_perp, selAllocation, temp_workspace + "\\clip_perp")
-
-        if segment_id == unique_segment_ids[0]:
-            arcpy.CopyFeatures_management(temp_workspace + "\\clip_perp", clipedlines)
-        else:
-            arcpy.Append_management(temp_workspace + "\\clip_perp", clipedlines, "NO_TEST" )
-    
-    ##Multipart to singleparts
-    singlepartlines = arcpy.MultipartToSinglepart_management(clipedlines, temp_workspace + "\\singlepartlines")
-    '''
-
-    ##Step 3: Use EU Alloation to cut perp lines
-    arcpy.AddMessage("Step 3: Cut and clean up cross sections...")
-    ##divide watershed by different flowlines
-    ##Delete the exclude_points
-    if len(exclude_PntID) > 0:
-        with arcpy.da.UpdateCursor(flowlinepointscopy, 'PntID') as cursor:
-            for row in cursor:
-                if row in exclude_PntID:
-                    cursor.deleteRow()
-        del row, cursor
+#------------------------------------------------------------------------------------------------------------
+# This fuction cleanup and clip the cross sections based on the catchment basins.
+#------------------------------------------------------------------------------------------------------------
+def clean_cross_sections(perpendiculars, flowlines, IDfield, beddem, constrainboundary, eraseAreas):
 
     #create minimum bounding geometry, convex hull method"
     if constrainboundary != "":
         mbg = arcpy.MinimumBoundingGeometry_management(constrainboundary, temp_workspace + "\\mbg", "ENVELOPE", "ALL", "","NO_MBG_FIELDS")
     else:
-        mbg = arcpy.MinimumBoundingGeometry_management(flowline, temp_workspace + "\\mbg", "ENVELOPE", "ALL", "","NO_MBG_FIELDS")
+        mbg = arcpy.MinimumBoundingGeometry_management(flowlines, temp_workspace + "\\mbg", "ENVELOPE", "ALL", "","NO_MBG_FIELDS")
     ##create a 300 m buffer around the mbg
     buffer_dist = str(half_width) + " Meter"
     mbg_buf = arcpy.Buffer_analysis(mbg, temp_workspace + "\\mbg_buf", buffer_dist, "", "", "ALL")
@@ -348,45 +229,48 @@ def create_cross_sections(flowlinepoints, flowline, beddem, constrainboundary, e
     arcpy.env.extent = extDEM
     arcpy.env.cellSize = extDEM
     arcpy.env.snapRaster = extDEM ##setup snap raster
-
+    
     ##set the parallelProcessingFactor for large DEMs
     nrow = extDEM.height
     ncol = extDEM.width
 
     oldPPF = arcpy.env.parallelProcessingFactor
     if (nrow > 1500 or ncol > 1500):
-        arcpy.AddMessage("The DEM has " +str(nrow) + " rows and " + str(ncol) + " columns")
-        arcpy.env.parallelProcessingFactor = 0 ##use 0 for large rasters
+        #arcpy.AddMessage("The DEM has " +str(nrow) + " rows and " + str(ncol) + " columns")
+        arcpy.env.parallelProcessingFactor = 0 ##use 0 for large rasters    
 
-        
     fillDEM =Fill(extDEM)  ##Fill the sink first
     fdir = FlowDirection(fillDEM,"NORMAL") ##Flow direction
     facc = FlowAccumulation(fdir) ##Flow accmulation
 
     ##covert the flowlines to raster
     streamlink = temp_workspace + "\\streamlink"
-    arcpy.conversion.FeatureToRaster(flowline, 'SegmentID', streamlink)
+    arcpy.conversion.FeatureToRaster(flowlines, IDfield, streamlink)
     outWs = Watershed(fdir, streamlink)
-    arcpy.RasterToPolygon_conversion(outWs, temp_workspace + "\\eucAllocate", "SIMPLIFY", "VALUE")
+    arcpy.RasterToPolygon_conversion(outWs, temp_workspace + "\\catchments", "SIMPLIFY", "VALUE")
 
     ##Clip the cross section using the watershed boundary
     if constrainboundary != "":
-        arcpy.Clip_analysis (temp_workspace + "\\eucAllocate", constrainboundary, temp_workspace + "\\clipAllocation")
-        arcpy.CopyFeatures_management(temp_workspace + "\\clipAllocation", temp_workspace + "\\eucAllocate")
+        arcpy.Clip_analysis (temp_workspace + "\\catchments", constrainboundary, temp_workspace + "\\clipcatchments")
+        arcpy.CopyFeatures_management(temp_workspace + "\\clipcatchments", temp_workspace + "\\catchments")
 
-    selAllocation = temp_workspace + "\\selAllocation"
+    sel_catchment = temp_workspace + "\\sel_catchment"
     sel_perp = temp_workspace + "\\sel_perp"
     clipedlines = temp_workspace + "\\clipedlines"
+    
+    linearr=arcpy.da.FeatureClassToNumPyArray(flowlines, (IDfield))
+    line_ids = np.array([item[0] for item in linearr])
+    unique_line_ids = np.unique(line_ids)
 
-    for segment_id in unique_segment_ids:
-        query = "gridcode = " + str(segment_id) 
-        arcpy.Select_analysis (temp_workspace + "\\eucAllocate", selAllocation, query)
-        query = "SegmentID = "+ str(segment_id) 
+    for line_id in unique_line_ids:
+        query = "gridcode = " + str(line_id) 
+        arcpy.Select_analysis (temp_workspace + "\\catchments", sel_catchment, query)
+        query = IDfield + " = " + str(line_id) 
         arcpy.Select_analysis (perpendiculars, sel_perp, query)
 
-        arcpy.Clip_analysis (sel_perp, selAllocation, temp_workspace + "\\clip_perp")
+        arcpy.Clip_analysis (sel_perp, sel_catchment, temp_workspace + "\\clip_perp")
 
-        if segment_id == unique_segment_ids[0]:
+        if line_id == unique_line_ids[0]:
             arcpy.CopyFeatures_management(temp_workspace + "\\clip_perp", clipedlines)
         else:
             arcpy.Append_management(temp_workspace + "\\clip_perp", clipedlines, "NO_TEST" )
@@ -396,8 +280,8 @@ def create_cross_sections(flowlinepoints, flowline, beddem, constrainboundary, e
     fieldmappings = arcpy.FieldMappings()
     fieldmappings.addTable(singlepartline)
     singlepartlines = temp_workspace + "\\singlepartlines"
-    arcpy.SpatialJoin_analysis(singlepartline, flowline, singlepartlines, "JOIN_ONE_TO_ONE", "KEEP_COMMON", fieldmappings, "INTERSECT", "1 Meters", "#")
-
+    arcpy.SpatialJoin_analysis(singlepartline, flowlines, singlepartlines, "JOIN_ONE_TO_ONE", "KEEP_COMMON", fieldmappings, "INTERSECT", "#", "#")
+    '''
     ##Step 4: Clean perp lines, so that only the part intersect the flowpoints are preserved
     lines = []
     flowlineids = []
@@ -443,10 +327,10 @@ def create_cross_sections(flowlinepoints, flowline, beddem, constrainboundary, e
     if i>0:
         del perp
     del perps
-
+    '''
     ##Reset parallelProcessingFactor to the default
     arcpy.env.parallelProcessingFactor = oldPPF
-
+    
     if eraseAreas != "":
         fieldmappings = arcpy.FieldMappings()
         fieldmappings.addTable(temp_workspace + "\\singlepartlines")
@@ -456,138 +340,76 @@ def create_cross_sections(flowlinepoints, flowline, beddem, constrainboundary, e
     else:
         return singlepartlines
 
-## This is the new function that nees to write
 #------------------------------------------------------------------------------------------------------------
 # This fuction is the whole process to reconstruct paleoice based on DEM, input flowlines, ice boundary, and default shear stress
 #------------------------------------------------------------------------------------------------------------
 def CreateCrossSections(BedDEM, inputflowline, constrainboundary, eraseAreas, spacing, half_width, AdjustProfile, min_width, min_height, b_divide, out_cross_sections, OutputConvexPoints):
-
-    GlacierID = "GlacierID" ##This is an ID field in inputflowline to identify the flowline(s) for each glacier (maybe connected with multiple flowlines)
-
-    icebndpolys = temp_workspace + "\\icebndpolys"
-
     ####Flow direction and accumulation analysis
     cellsize = arcpy.GetRasterProperties_management(BedDEM,"CELLSIZEX")
     cellsize_float = float(cellsize.getOutput(0)) # use float cell size
     spatialref=arcpy.Describe(inputflowline).spatialReference #get spat ref from input    
 
-    #Check and flip lines if necessary    
-    arcpy.AddMessage("Checking flowline direction...")
-    Check_If_Flip_Line_Direction(inputflowline, BedDEM)
-
-    #Make a copy of the flowline
-    flowlines = temp_workspace + "\\flowlines"
-    flowline = temp_workspace + "\\flowline"
-    flowline3dpoints = temp_workspace + "\\flowline3dpoints"
-    selflowline3dpoints = temp_workspace + "\\selflowline3dpoints"
-    singepoint = temp_workspace + "\\singepoint"
-    ws = temp_workspace + "\\ws"
-    wsflowpoints = temp_workspace + "\\wsflowpoints"
-    icepolys = temp_workspace + "\\icepolys"
-    icepolyselect = temp_workspace + "\\icepolyselect"
-    mainflowline = temp_workspace + "\\mainflowline"
-    flowlinecopy = temp_workspace + "\\flowlinecopy"
-    allicepolys = temp_workspace + "\\allicepolys"
-    singeflowpnts = temp_workspace + "\\singeflowpnts"
-    icewatersheds = temp_workspace + "\\icewatersheds"
-
-    arcpy.CopyFeatures_management(inputflowline, flowlines)
-
+    flowlinepoints = temp_workspace + "\\flowlinepoints"
+    cross_sections = temp_workspace + "\\cross_sections"
     arcpy.env.extent = BedDEM
 
-    ###The process to ordering the flowlines
-    #Obtain the height info for the start of each flowline
-    height=[]
-    lineid = []
-    #glaciers = []
-    with arcpy.da.SearchCursor(flowlines, ['SHAPE@']) as cursor:
+    #Step 1: create points along the flowlines
+    arcpy.AddMessage("Step 1: Generate cross valley profiles based on spacing and width...")
+    PointsFile = temp_workspace + "\\PointsFile"
+    PointsWithLineID = temp_workspace + "\\PointsWithLineID"
+    intersect_points = temp_workspace + "\\intersect_points"
+    #lineID = []
+    Points = []
+    with arcpy.da.SearchCursor(inputflowline, ['SHAPE@']) as cursor:
         i = 0
         for row in cursor:
-            Startpoint = row[0].firstPoint
-            coord= str(Startpoint.X)+" "+str(Startpoint.Y)
-            Cellvalue=arcpy.GetCellValue_management(BedDEM, coord)
-            Startpoint.Z=Cellvalue.getOutput(0)
-            height.append(Startpoint.Z)
-            lineid.append(i)
+            #arcpy.AddMessage("----Processing streamline: #" + str(i+1))
+            Length = row[0].length
+            #try:
+            #    rlist = xrange(1, int(Length), int(spacing))
+            #except: ##python 3 xrange is replaced by range
+            num = int(Length / spacing)
+            #rlist = range(1, num)
+            
+            for j in range(1, num):            
+                Points.append(row[0].positionAlongLine(j*spacing))
+                #lineID.append (i)
             i += 1
-
     del cursor, row
 
-    ##Order the line geometries in the list
-    arcpy.AddMessage("Ordering flowlines...")
-    arcpy.AddField_management(flowlines,"ProcessID","LONG",6)
-
-    order = sorted(range(len(height)), key=lambda k: height[k])  ##order is the ID
-
-    with arcpy.da.UpdateCursor(flowlines, "ProcessID") as cursor: ##Fix the assigning order issue
+    arcpy.CopyFeatures_management(Points, PointsFile)
+    '''
+    #Always have errors for a large dataset, using spatial join instead   
+    arcpy.AddField_management(PointsFile, 'LineID', 'Long', 10) 
+ 
+    with arcpy.da.UpdateCursor(PointsFile, ['LineID']) as cursor:
         i = 0
         for row in cursor:
-            row[0] = order.index(i)
+            row[0] = lineID[i]
             cursor.updateRow(row)
-            i += 1
-    del row, cursor
+            i+=1
+    del row, cursor  
+    '''
+    arcpy.AddField_management(inputflowline, 'LineID', 'Long', 10) ##OFID is not FID, but it is related to FID
+    arcpy.CalculateField_management(inputflowline,"LineID",str("!"+str(arcpy.Describe(inputflowline).OIDFieldName)+"!"),"PYTHON_9.3")
+    arcpy.SpatialJoin_analysis(PointsFile, inputflowline, PointsWithLineID, "JOIN_ONE_TO_ONE", "KEEP_COMMON", "#", "INTERSECT", "#", "#")
+
+    cross_sections = create_cross_sections(PointsWithLineID, 'LineID', half_width, spacing)
+
+    ##Clean Corss sections based on drainage basins
+    arcpy.AddMessage("Step 2: Constain cross valley profiles within catchments and confined or excluded areas...")
+    cleaned_cross_sections = clean_cross_sections(cross_sections, inputflowline, 'LineID', BedDEM, constrainboundary, eraseAreas)
     
-    OriginalFID = []
-    Points = []
-    processPID = []
-    #glaIds = []
-    p = 0
-
-    geometry = arcpy.CopyFeatures_management(flowlines, arcpy.Geometry()) 
-
-    for i in order:
-        Length = geometry[i].length
-        Length = int(Length)
-        try:
-            rlist = xrange(0, Length, spacing)
-        except: ##python 3 xrange is replaced by range
-            rlist = range(0, Length, spacing)
-        
-        for j in rlist:            
-            Points.append(geometry[i].positionAlongLine(j))
-            OriginalFID.append(i)
-            #glaIds.append(glaciers[i])
-            processPID.append(p)
-        p += 1
-
-    PointsFile = temp_workspace + "\\PointsFile"
-    arcpy.CopyFeatures_management(Points, PointsFile)
-
-    ##Extract Values and xy coordinates from Elevation Raster
-    ExtractValuesToPoints(PointsFile, BedDEM, flowline3dpoints,"INTERPOLATE", "VALUE_ONLY")
-
-    ##Add original FID Field
-    arcpy.AddField_management(flowline3dpoints, 'OFID', 'Long', 6) ##OFID is not FID, but it is related to FID
-    arcpy.AddField_management(flowline3dpoints, 'ProcessID', 'Long', 6) ##OFID is not FID, but it is related to FID
-    #arcpy.AddField_management(flowline3dpoints, GlacierID, 'Long', 6) ##OFID is not FID, but it is related to FID
-    PointsCursor = arcpy.UpdateCursor(flowline3dpoints, ['OFID','ProcessID'])
-    i = 0
-    for row in PointsCursor:
-        row.OFID = OriginalFID[i]
-        row.ProcessID = processPID[i]
-        #row.GlacierID = glaIds[i]
-        PointsCursor.updateRow(row)
-        i+=1
-    del row, PointsCursor  
-    
-    arcpy.DeleteField_management(flowline3dpoints,["POINT_Z","POINT_M"])
-
-    exist_fields = [f.name for f in arcpy.ListFields(flowlines)] #List of current field names in outline layer
-    line_fields = ["line_id"]
-    for field in line_fields:
-        if field not in exist_fields:
-            arcpy.AddField_management(flowlines, field, "LONG")
-    arcpy.CalculateField_management(flowlines,"line_id",str("!"+str(arcpy.Describe(flowlines).OIDFieldName)+"!"),"PYTHON_9.3")
-
-    singlepartlines = create_cross_sections(flowline3dpoints, flowlines, BedDEM, constrainboundary, eraseAreas, cellsize_float, half_width, spacing)##, min_width, b_divide)
+    ##Get the intersect points between the cleaned_cross_sections and flowlines
+    arcpy.analysis.Intersect([cleaned_cross_sections, inputflowline], intersect_points, "", "", "point")
 
     ##refine the cross sections
-    #arcpy.AddMessage("Step 5: Constrain Cross section widths...")
+    arcpy.AddMessage("Step 3: Constrain Cross section widths by the highest or convex points...")
     final_cross_sections = temp_workspace + "\\final_cross_sections"
     if len(AdjustProfile) > 10:  ##Refine profiles 
 
         profile3D = temp_workspace + "\\profile3D"
-        arcpy.InterpolateShape_3d(BedDEM, singlepartlines, profile3D)
+        arcpy.InterpolateShape_3d(BedDEM, cleaned_cross_sections, profile3D)
 
         lowest_X_coord = []
         lowest_Y_coord = []
@@ -614,9 +436,9 @@ def CreateCrossSections(BedDEM, inputflowline, constrainboundary, eraseAreas, sp
 
 
         if "convex" in AdjustProfile:
-            arcpy.AddMessage("Step 4: Cut the cross sections by the convex points on each side...")
+            arcpy.AddMessage("----Cut the cross sections by the convex points on each side...")
         else:
-            arcpy.AddMessage("Step 4: Cut the cross sections by the highest points on each side...")
+            arcpy.AddMessage("----Cut the cross sections by the highest points on each side...")
         #FID_list = []
         X_coord = []
         Y_coord = []
@@ -778,18 +600,18 @@ def CreateCrossSections(BedDEM, inputflowline, constrainboundary, eraseAreas, sp
             arcpy.CopyFeatures_management(bnd_points, OutputConvexPoints)            
         
 
-        arcpy.management.SplitLineAtPoint(singlepartlines, bnd_points, temp_workspace + "\\split_profiles", "1 Meters")
+        arcpy.management.SplitLineAtPoint(cleaned_cross_sections, bnd_points, temp_workspace + "\\split_profiles", "1 Meters")
         fieldmappings = arcpy.FieldMappings()
-        fieldmappings.addTable(singlepartlines)
+        fieldmappings.addTable(cleaned_cross_sections)
         ##Should use the lowest points for the spatial join
-        arcpy.SpatialJoin_analysis(temp_workspace + "\\split_profiles", flowline3dpoints, final_cross_sections, "JOIN_ONE_TO_ONE", "KEEP_COMMON", fieldmappings, "INTERSECT", "1 Meters", "#")
+        arcpy.SpatialJoin_analysis(temp_workspace + "\\split_profiles", intersect_points, final_cross_sections, "JOIN_ONE_TO_ONE", "KEEP_COMMON", fieldmappings, "INTERSECT", "1 Meters", "#")
     else:
-        arcpy.CopyFeatures_management(singlepartlines, final_cross_sections) 
+        arcpy.CopyFeatures_management(cleaned_cross_sections, final_cross_sections) 
 
     if b_divide:
-        arcpy.AddMessage("Step 5: Divide cross sections by the streamlines...")
+        arcpy.AddMessage("Step 4: Divide cross sections by the streamlines...")
         splitted_perps = temp_workspace + "\\splitted_perps"
-        arcpy.SplitLineAtPoint_management(final_cross_sections, flowline3dpoints, splitted_perps, '1 Meters')
+        arcpy.SplitLineAtPoint_management(final_cross_sections, flowlinepoints, splitted_perps, '1 Meters')
         ##Delete the cross section line that is less than 90% of the width
         with arcpy.da.UpdateCursor(splitted_perps, 'SHAPE@LENGTH') as cursor:
             for row in cursor:
@@ -830,7 +652,7 @@ if __name__ == '__main__':
     singlepartlines = CreateCrossSections(BedDEM, inputflowline, constrainboundary, eraseAreas, spacing, half_width, AdjustProfile, min_width, min_height, b_divide, out_cross_sections, OutputConvexPoints)
 
     if OutputFolder != "":
-        arcpy.AddMessage("Step 6: Save cross-sectional plots...")
+        arcpy.AddMessage("Save cross-sectional plots...")
         arcpy.AddField_management(out_cross_sections, "ProfilePlot", "TEXT", 20)
         arcpy.AddField_management(out_cross_sections, "ProfileID", "Long", 10)
         arcpy.CalculateField_management(out_cross_sections,"ProfileID",str("!FlowPntID!"),"PYTHON_9.3")
@@ -872,6 +694,10 @@ if __name__ == '__main__':
                 plt.close(fig)  # Close the figure to save computer processing
                 plotlink = "file:///" + filename
                 plot_list.append(plotlink)
+
+                csvfile = OutputFolder + "\\ProfileID_" + str(fcID)+".csv"
+                df = pd.DataFrame({'Length': np.array(LengthfromStart), 'Elevation': np.array(PointZ)})
+                df.to_csv(csvfile, index=False)
 
         del row, cursor
 
