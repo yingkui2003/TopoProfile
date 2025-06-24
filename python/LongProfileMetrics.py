@@ -15,7 +15,7 @@
 # Knoxville, TN 37996
 #-------------------------------------------------------------------------------
 
-from __future__ import division
+#from __future__ import division
 import arcpy
 from arcpy import env
 from arcpy.sa import *
@@ -26,6 +26,7 @@ from scipy.optimize import curve_fit
 from scipy import optimize
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 arcpy.env.overwriteOutput = True
@@ -474,6 +475,10 @@ with arcpy.da.SearchCursor(temp_workspace + "\\profile3D", ["ProfileID", "SHAPE@
             plt.close(fig)  # Close the figure to save computer processing
             plotlink = "file:///" + filename
             plot_list.append(plotlink)
+            
+            csvfile = OutputFolder + "\\ProfileID_" + str(fcID)+".csv"
+            df = pd.DataFrame({'Length': max_len - np.array(LengthfromStart), 'Elevation': np.array(PointZ)})
+            df.to_csv(csvfile, index=False)
 
 
 
